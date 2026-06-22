@@ -1,0 +1,7 @@
+typer
+rich
+litellm
+python-dotenv
+prompt_toolkit
+pytest
+pytest-mock
