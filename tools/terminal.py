@@ -1,3 +1,4 @@
+from permissions import require_approval
 import subprocess
 
 def run_command(command: str) -> str:
@@ -10,6 +11,11 @@ def run_command(command: str) -> str:
     Returns:
         str: The standard output and standard error of the command, or an error message.
     """
+    # Check for destructive commands roughly
+    is_destructive = any(cmd in command for cmd in ['rm ', 'del ', 'format ', 'mkfs', '>'])
+    if not require_approval(command, "Executing shell command", is_destructive=is_destructive):
+        return f"Error: User denied permission to execute command '{command}'."
+        
     try:
         # Run the command and capture output
         result = subprocess.run(

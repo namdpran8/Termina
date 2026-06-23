@@ -12,11 +12,16 @@ def test_agent_chat_basic_text_response(mock_completion, mock_get_model, mock_ge
     mock_get_key.return_value = "fake_key"
     mock_get_model.return_value = ("nvidia", "nvidia/nemotron-4-340b-instruct")
     
-    # Mock Litellm completion response
-    mock_response = MagicMock()
-    mock_response.choices[0].message.content = "Hello, I am Termina."
-    mock_response.choices[0].message.tool_calls = None
-    mock_completion.return_value = mock_response
+    # Mock Litellm completion response as an iterable for streaming
+    mock_chunk = MagicMock()
+    mock_chunk.choices[0].delta.content = "Hello, I am Termina."
+    mock_chunk.choices[0].delta.tool_calls = None
+    mock_chunk.usage = MagicMock()
+    mock_chunk.usage.prompt_tokens = 10
+    mock_chunk.usage.completion_tokens = 5
+    
+    # We return an iterator yielding this chunk
+    mock_completion.return_value = [mock_chunk]
     
     agent = Agent()
     agent.chat("Say hello")

@@ -5,7 +5,7 @@ setup(
     version="0.1.0",
     description="An AI Coding Assistant (Claude Code Alternative)",
     author="Your Name",
-    py_modules=["cli", "agent", "config"],
+    py_modules=["cli", "agent", "config", "permissions", "startup", "session", "change_tracker", "cost_tracker"],
     packages=find_packages(),
     install_requires=[
         "typer",

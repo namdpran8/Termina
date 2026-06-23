@@ -2,7 +2,17 @@
 
 Termina is a powerful, globally installable terminal-based AI coding assistant designed as an open-source alternative to Claude Code. It allows you to Bring Your Own Key (BYOK) and interact with multiple AI providers (Nvidia, OpenAI, Anthropic, Gemini) directly from your command line.
 
-It can explore your local file system, read/write files, and execute shell commands to help you code efficiently.
+It can explore your local file system, safely read/edit files, and execute shell commands to help you code efficiently.
+
+## Features
+- **Project Awareness:** Automatically detects your project type, file counts, and reads your `README.md` on startup.
+- **Strict Permissions:** Prompts `[y/N]` before writing files or executing shell commands.
+- **Surgical Editing:** Edits specific blocks of text instead of overwriting entire files, complete with a visual unified diff.
+- **Streaming Responses:** Beautiful, snappy streaming outputs in the terminal using `rich`.
+- **Slash Commands:** Integrated `/help`, `/clear`, `/cost`, `/tree`, and `/undo` commands.
+- **Cost Tracking:** Tracks tokens and calculates estimated usage cost in real-time.
+- **Local Undo Memory:** Instantly revert accidental file modifications using `/undo`.
+- **Git Aware:** The agent can view `git status`, diffs, and generate commits for you.
 
 ## Prerequisites
 - Python 3.10+
@@ -44,21 +54,27 @@ termina config set-model openai gpt-4o
 
 Start the interactive chat session from **any folder** on your computer:
 ```bash
-termina chat
+termina
 ```
+*(You can also use `termina chat`)*
 
 Once inside the chat, you can ask Termina to:
 - "List the files in the current directory."
 - "Read `agent.py` and explain what it does."
 - "Write a python script that calculates the Fibonacci sequence to a file named `fib.py`."
 - "Run `python fib.py` and tell me the output."
+- "Review my git changes and commit them."
 
+Type `/help` to see local interactive commands.
 Type `exit` or `quit` to leave the chat.
 
 ## Architecture
 
 - **`cli.py`**: The entry point using `Typer` for handling commands.
 - **`config.py`**: Manages user configuration and API keys locally.
-- **`agent.py`**: The core loop using `litellm` to communicate with the LLM and execute tools.
-- **`tools/`**: Contains the tools the AI can use (`filesystem.py`, `terminal.py`).
+- **`agent.py`**: The core loop using `litellm` to communicate with the LLM and stream responses.
+- **`startup.py`**: Builds project context when launching the CLI.
+- **`permissions.py`**: Hooks into tools to ensure user safety.
+- **`change_tracker.py`**: Memory log for file modifications and the `/undo` system.
+- **`tools/`**: Contains the tools the AI can use (`filesystem.py`, `terminal.py`, `search.py`, `git.py`).
 - **`setup.py`**: Registers the global `termina` CLI executable.
