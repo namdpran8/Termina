@@ -23,8 +23,11 @@ def require_approval(action: str, details: str, is_destructive: bool = False) ->
     
     # Check if we are running in an interactive terminal
     if not sys.stdin.isatty():
-        # Fallback to auto-approve if not interactive (e.g., testing or piped)
-        return True
+        console.print(
+            f"[bold red]⛔ Auto-denied (non-interactive session):[/bold red] {action}\n"
+            "[dim]Run termina in an interactive terminal to approve actions.[/dim]"
+        )
+        return False
         
     try:
         response = Confirm.ask(f"[{color}]Allow?[/{color}]", default=False)

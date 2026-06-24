@@ -23,7 +23,8 @@ def run_command(command: str) -> str:
             shell=True,
             capture_output=True,
             text=True,
-            check=False # Do not raise exception on non-zero exit code
+            check=False, # Do not raise exception on non-zero exit code
+            timeout=120
         )
         
         output = ""
@@ -36,5 +37,7 @@ def run_command(command: str) -> str:
             output = f"Command executed successfully with no output. Exit code: {result.returncode}"
             
         return output
+    except subprocess.TimeoutExpired:
+        return f"Error: Command timed out after 120 seconds."
     except Exception as e:
         return f"Error executing command: {e}"

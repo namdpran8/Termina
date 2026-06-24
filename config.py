@@ -14,7 +14,53 @@ DEFAULT_CONFIG = {
         "openai": "",
         "anthropic": "",
         "gemini": ""
+    },
+    # New local providers block
+    "local_providers": {
+        "ollama": {
+            "api_base": "http://localhost:11434",
+            "enabled": False
+        },
+        "lmstudio": {
+            "api_base": "http://localhost:1234/v1",
+            "enabled": False
+        },
+        "custom": {
+            "api_base": "",
+            "enabled": False
+        }
     }
+}
+
+# Model presets for quick reference — shown by `termina config list-models`
+MODEL_PRESETS = {
+    "nvidia": [
+        ("meta/llama-3.1-70b-instruct",      "Default — fast general use (free tier)"),
+        ("nvidia/nemotron-3-nano-9b",          "Nemotron Nano — fastest, lowest cost"),
+        ("nvidia/nemotron-3-super-120b-a12b",  "Nemotron Super — best tool-calling, agents"),
+        ("nvidia/nemotron-ultra-253b-v1",      "Nemotron Ultra — max reasoning"),
+    ],
+    "openai": [
+        ("gpt-4o",       "Best balance of speed and quality"),
+        ("gpt-4o-mini",  "Fast and cheap for simple tasks"),
+    ],
+    "anthropic": [
+        ("claude-sonnet-4-6",  "Fast, capable everyday model"),
+        ("claude-opus-4-6",    "Most capable, slower"),
+    ],
+    "gemini": [
+        ("gemini-2.0-flash",   "Fast and capable"),
+        ("gemini-2.5-pro",     "Best reasoning"),
+    ],
+    "ollama": [
+        ("llama3.2:8b",        "Good tool-calling support"),
+        ("qwen2.5-coder:14b",  "Best for coding tasks"),
+        ("mistral:7b",         "Fast and lightweight"),
+        ("deepseek-coder-v2",  "Strong code generation"),
+    ],
+    "lmstudio": [
+        ("(use whatever model is loaded in LM Studio)", ""),
+    ],
 }
 
 def load_config() -> dict:
@@ -95,3 +141,30 @@ def get_default_model() -> tuple[str, str]:
     """
     config = load_config()
     return config.get("default_provider", "nvidia"), config.get("default_model", "meta/llama-3.1-70b-instruct")
+
+def set_local_provider(provider: str, api_base: str = None) -> None:
+    """Enable a local provider, optionally overriding its default api_base."""
+    config = load_config()
+    if "local_providers" not in config:
+        config["local_providers"] = DEFAULT_CONFIG["local_providers"].copy()
+    
+    defaults = {
+        "ollama":   "http://localhost:11434",
+        "lmstudio": "http://localhost:1234/v1",
+        "custom":   ""
+    }
+    
+    config["local_providers"][provider] = {
+        "api_base": api_base or defaults.get(provider, ""),
+        "enabled": True
+    }
+    save_config(config)
+
+def get_local_provider_base(provider: str) -> str:
+    """Return the api_base for a local provider."""
+    config = load_config()
+    return (
+        config.get("local_providers", {})
+              .get(provider, {})
+              .get("api_base", "")
+    )

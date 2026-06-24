@@ -24,10 +24,13 @@ def git_diff() -> str:
     return run_git_command("git diff")
 
 def git_commit(message: str) -> str:
-    """Stages all changes and commits them with the provided message."""
-    if not require_approval("git commit -am", f"Message: {message}"):
+    # Show what will be staged BEFORE asking for approval
+    status = run_git_command("git status --short")
+    details = f"Commit message: {message}\n\nFiles to be staged:\n{status}"
+
+    if not require_approval("git add . && git commit", details):
         return "Error: User denied permission to commit."
-        
+
     run_git_command("git add .")
     return run_git_command(f'git commit -m "{message}"')
 

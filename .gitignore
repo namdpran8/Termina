@@ -63,3 +63,5 @@ Thumbs.db
 
 # Egg metadata created by setup.py
 termina.egg-info/
+
+full_prompt.txt

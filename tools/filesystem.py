@@ -41,6 +41,14 @@ def read_file(path: str) -> str:
         if not file_path.is_file():
             return f"Error: Path '{path}' is not a file."
             
+        MAX_READ_BYTES = 1_000_000  # 1MB
+        size = file_path.stat().st_size
+        if size > MAX_READ_BYTES:
+            return (
+                f"Error: File '{path}' is too large to read directly "
+                f"({size // 1024}KB). Use grep_search to find specific content instead."
+            )
+            
         with open(file_path, "r", encoding="utf-8") as f:
             return f.read()
     except UnicodeDecodeError:
@@ -58,15 +66,20 @@ def write_file(path: str, content: str) -> str:
     try:
         file_path = Path(path)
         
-        # Record state for undo
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Record state for undo just before write (not before)
         from change_tracker import change_log
         change_log.record_state(str(file_path))
         
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            # Remove the phantom undo entry if write fails
+            if change_log.history:
+                change_log.history.pop()
+            raise
         return f"Successfully wrote to file '{path}'."
     except Exception as e:
         return f"Error writing to file: {e}"
@@ -109,12 +122,18 @@ def edit_file(path: str, target_content: str, replacement_content: str) -> str:
         if not require_approval(f"Edit file: {path}", diff_text):
             return f"Error: User denied permission to edit file '{path}'."
             
-        # Record state for undo
+        # Record state for undo just before write (not before)
         from change_tracker import change_log
         change_log.record_state(str(file_path))
             
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+        except Exception:
+            # Remove the phantom undo entry if write fails
+            if change_log.history:
+                change_log.history.pop()
+            raise
             
         return f"Successfully edited file '{path}'."
         
@@ -122,3 +141,28 @@ def edit_file(path: str, target_content: str, replacement_content: str) -> str:
         return f"Error: File '{path}' appears to be a binary file."
     except Exception as e:
         return f"Error editing file: {e}"
+
+def read_files(paths: list) -> str:
+    """
+    Reads multiple files in one call. Returns concatenated content with headers.
+    Useful for loading several related files into context at once.
+    """
+    results = []
+    for path in paths:
+        results.append(f"\n{'='*60}\n# FILE: {path}\n{'='*60}\n")
+        results.append(read_file(path))
+    return "\n".join(results)
+
+def glob_files(pattern: str, path: str = ".") -> str:
+    """
+    Find files matching a glob pattern (e.g. '**/*.py', 'src/*.ts').
+    Returns a newline-separated list of matching file paths.
+    """
+    search_root = Path(path)
+    matches = list(search_root.glob(pattern))
+    # Filter out ignored directories
+    ignore_parts = {'.git', 'node_modules', '__pycache__', '.venv', 'venv'}
+    matches = [m for m in matches if not any(p in ignore_parts for p in m.parts)]
+    if not matches:
+        return f"No files matched pattern '{pattern}' in '{path}'."
+    return "\n".join(str(m) for m in sorted(matches))

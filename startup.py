@@ -1,5 +1,7 @@
 import os
 from pathlib import Path
+import hashlib
+import json
 
 def find_project_root(cwd: str) -> str:
     """Walk up the directory tree to find the project root."""
@@ -76,22 +78,76 @@ def build_tree(root_dir: str, max_depth: int = 2) -> tuple[str, int, int]:
 
 def read_first_n_lines(filepath: str, n: int = 100) -> str:
     """Read the first N lines of a file."""
+    import itertools
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            lines = [next(f) for _ in range(n)]
-        content = "".join(lines)
-        return content
-    except StopIteration:
-        # File has fewer than n lines
-        pass
+            lines = list(itertools.islice(f, n))
+        return "".join(lines)
     except Exception:
         return ""
-        
+
+def detect_local_providers() -> dict:
+    """
+    Probe common local model server ports (non-blocking, 1s timeout each).
+    Returns dict of {provider_name: bool}.
+    """
+    import urllib.request
+
+    endpoints = {
+        "ollama": "http://localhost:11434/api/tags",
+        "lmstudio": "http://localhost:1234/v1/models",
+    }
+    detected = {}
+    for name, url in endpoints.items():
+        try:
+            urllib.request.urlopen(url, timeout=1)
+            detected[name] = True
+        except Exception:
+            detected[name] = False
+    return detected
+
+STARTUP_CACHE_FILE = Path.home() / ".termina" / "startup_cache.json"
+
+def _cache_key(root: str) -> str:
+    """Generate a cache key based on project root path and its mtime."""
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
+        mtime = str(os.path.getmtime(root))
     except Exception:
-        return ""
+        mtime = "0"
+    raw = f"{root}:{mtime}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+def startup_scan_cached(cwd: str) -> dict:
+    """
+    Cached version of startup_scan. Returns cached context if project root
+    hasn't changed since last scan. Falls back to full scan otherwise.
+    """
+    root = find_project_root(cwd)
+    key = _cache_key(root)
+
+    # Try loading cache
+    if STARTUP_CACHE_FILE.exists():
+        try:
+            cache = json.loads(STARTUP_CACHE_FILE.read_text(encoding="utf-8"))
+            if cache.get("key") == key:
+                return cache["context"]
+        except Exception:
+            pass  # corrupt cache — fall through to full scan
+
+    # Full scan
+    context = startup_scan(cwd)
+
+    # Save cache
+    try:
+        STARTUP_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        STARTUP_CACHE_FILE.write_text(
+            json.dumps({"key": key, "context": context}, indent=2),
+            encoding="utf-8"
+        )
+    except Exception:
+        pass  # cache write failure is non-fatal
+
+    return context
 
 def startup_scan(cwd: str) -> dict:
     """Scan the directory and return project context for the LLM."""
@@ -122,10 +178,12 @@ def startup_scan(cwd: str) -> dict:
             break
             
     # Check for custom rules
-    for rule_name in ['.terminarc', 'AGENTS.md']:
+    for rule_name in ['.terminarc', 'AGENTS.md', 'TERMINA.md', '.termina/TERMINA.md']:
         rule_path = root_path / rule_name
         if rule_path.exists():
             context["custom_rules"] = read_first_n_lines(str(rule_path), 200)
             break
+            
+    context["local_providers"] = detect_local_providers()
             
     return context

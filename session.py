@@ -35,7 +35,11 @@ def load_session(session_id: str) -> list:
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except json.JSONDecodeError:
+        print(f"Warning: Session file '{session_id}' is corrupted and cannot be loaded.")
+        return None
+    except Exception as e:
+        print(f"Warning: Could not load session '{session_id}': {e}")
         return None
 
 def list_sessions() -> list:

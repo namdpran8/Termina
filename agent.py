@@ -1,14 +1,24 @@
 import json
 import time
 import uuid
-from litellm import completion
+from dataclasses import dataclass
+
+@dataclass
+class _ToolFunction:
+    name: str
+    arguments: str
+
+@dataclass
+class _ToolCall:
+    id: str
+    function: _ToolFunction
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.live import Live
 
 # Import our local tools and config
-from tools.filesystem import list_directory, read_file, write_file, edit_file
+from tools.filesystem import list_directory, read_file, write_file, edit_file, read_files, glob_files
 from tools.search import grep_search
 from tools.terminal import run_command
 from tools.git import git_status, git_diff, git_commit, git_log
@@ -198,6 +208,45 @@ TOOLS_SCHEMA = [
                 }
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_files",
+            "description": "Reads multiple files in one call. Useful for loading several related files into context at once.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of file paths to read"
+                    }
+                },
+                "required": ["paths"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "glob_files",
+            "description": "Find files matching a glob pattern (e.g. '**/*.py', 'src/*.ts'). Returns a newline-separated list of matching file paths.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "The glob pattern to search for."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "The root path to search in. Defaults to '.'"
+                    }
+                },
+                "required": ["pattern"]
+            }
+        }
     }
 ]
 
@@ -212,13 +261,20 @@ AVAILABLE_FUNCTIONS = {
     "git_status": git_status,
     "git_diff": git_diff,
     "git_commit": git_commit,
-    "git_log": git_log
+    "git_log": git_log,
+    "read_files": read_files,
+    "glob_files": glob_files
 }
 
 class Agent:
     def __init__(self, context=None):
         if context is None:
             context = {"cwd": ".", "project_type": "Unknown", "readme_summary": "", "custom_rules": ""}
+            
+        # Cache provider + key at init — re-read only when user calls /model
+        from config import get_default_model, get_api_key
+        self._provider, self._model = get_default_model()
+        self._api_key = get_api_key(self._provider)
             
         system_prompt = f"""You are Termina, a powerful AI coding assistant that runs in the user's terminal.
 
@@ -242,6 +298,12 @@ Project type: {context.get('project_type', 'Unknown')}
             
         if context.get('custom_rules'):
             system_prompt += f"\n## CUSTOM RULES\n{context['custom_rules']}\n"
+
+        from skills import discover_skills, build_skills_index
+        self._skills = discover_skills()
+        skills_block = build_skills_index(self._skills)
+        if skills_block:
+            system_prompt += skills_block
 
         self.messages = [
             {"role": "system", "content": system_prompt}
@@ -282,36 +344,114 @@ Project type: {context.get('project_type', 'Unknown')}
         except Exception as e:
             return f"Error executing tool '{function_name}': {str(e)}"
 
+    def reload_model_config(self) -> None:
+        from config import get_default_model, get_api_key
+        self._provider, self._model = get_default_model()
+        self._api_key = get_api_key(self._provider)
+
+    def _warn_if_tool_limited(self, model: str) -> None:
+        """Warn if the chosen local model may not support tool calling."""
+        LOCAL_TOOL_CAPABLE_MODELS = [
+            "llama3.2", "llama3.1", "qwen2.5", "qwen2.5-coder",
+            "mistral", "deepseek-coder-v2", "mistral-nemo"
+        ]
+        if not any(m in model.lower() for m in LOCAL_TOOL_CAPABLE_MODELS):
+            console.print(
+                f"[yellow]⚠ '{model}' may have limited tool-calling support. "
+                f"For best results use llama3.2, qwen2.5-coder, or mistral.[/yellow]"
+            )
+
+    def _build_completion_kwargs(self, provider: str, model: str, api_key: str) -> dict:
+        """Build the litellm.completion() kwargs dict for any provider."""
+        from config import get_local_provider_base
+
+        base_kwargs = {
+            "messages":              self.messages,
+            "tools":                 TOOLS_SCHEMA,
+            "tool_choice":           "auto",
+            "parallel_tool_calls":   False,
+            "stream":                True,
+            "stream_options":        {"include_usage": True},
+        }
+
+        p = provider.lower()
+
+        if p == "nvidia":
+            return {
+                **base_kwargs,
+                "model":    f"nvidia_nim/{model}",
+                "api_base": "https://integrate.api.nvidia.com/v1",
+                "api_key":  api_key,
+            }
+
+        elif p == "ollama":
+            self._warn_if_tool_limited(model)
+            return {
+                **base_kwargs,
+                "model":    f"ollama_chat/{model}",
+                "api_base": get_local_provider_base("ollama") or "http://localhost:11434",
+                "api_key":  "ollama",  # litellm requires a non-empty key
+            }
+
+        elif p == "lmstudio":
+            self._warn_if_tool_limited(model)
+            return {
+                **base_kwargs,
+                "model":    f"openai/{model}",
+                "api_base": get_local_provider_base("lmstudio") or "http://localhost:1234/v1",
+                "api_key":  "lmstudio",
+            }
+
+        elif p == "custom":
+            self._warn_if_tool_limited(model)
+            api_base = get_local_provider_base("custom")
+            if not api_base:
+                console.print("[bold red]Error:[/bold red] Custom provider api_base not set. "
+                              "Run: termina config set-local custom <URL>")
+                return {}
+            return {
+                **base_kwargs,
+                "model":    f"openai/{model}",
+                "api_base": api_base,
+                "api_key":  api_key or "custom",
+            }
+
+        else:
+            # openai, anthropic, gemini — litellm handles natively
+            return {
+                **base_kwargs,
+                "model":   model,
+                "api_key": api_key,
+            }
+
     def chat(self, user_input: str) -> None:
         """
         Main chat loop for a single turn. It handles tool calls recursively until the model gives a final text response.
         """
+        # Lazy import litellm — do NOT move this to module level
+        from litellm import completion
+        
         self.messages.append({"role": "user", "content": user_input})
         
-        provider, model = get_default_model()
-        api_key = get_api_key(provider)
+        provider = self._provider
+        model    = self._model
+        api_key  = self._api_key
         
-        if not api_key:
+        from cost_tracker import tracker
+        tracker.set_model(model)
+        
+        if not api_key and provider.lower() not in ["ollama", "lmstudio"]:
             console.print(f"[bold red]Error:[/bold red] API key for '{provider}' not found. Please set it using 'termina config set-key {provider} <YOUR_KEY>'.")
             self.messages.pop() # Remove the user input so they can retry
             return
 
-        kwargs = {
-            "messages": self.messages,
-            "api_key": api_key,
-            "tools": TOOLS_SCHEMA,
-            "tool_choice": "auto",
-            "stream": True,
-            "stream_options": {"include_usage": True}
-        }
+        kwargs = self._build_completion_kwargs(provider, model, api_key)
+        if not kwargs:
+            return  # provider config error, already printed
         
-        if provider.lower() == "nvidia":
-            kwargs["model"] = f"openai/{model}"
-            kwargs["api_base"] = "https://integrate.api.nvidia.com/v1"
-        else:
-            kwargs["model"] = model
+        MAX_TOOL_ITERATIONS = 15
         
-        while True:
+        for iteration in range(MAX_TOOL_ITERATIONS):
             start_time = time.time()
             try:
                 # Call litellm completion with streaming
@@ -356,6 +496,11 @@ Project type: {context.get('project_type', 'Unknown')}
 
             tool_calls = list(tool_calls_dict.values())
             
+            # NVIDIA NIM API strict single tool-call limit workaround
+            if len(tool_calls) > 1:
+                console.print(f"\n[dim]Model attempted {len(tool_calls)} parallel tool calls. Forcing sequential execution to prevent API error.[/dim]")
+                tool_calls = tool_calls[:1]
+            
             # JSON Fallback: Check if model output a raw JSON tool call string instead of using native function calling
             if not tool_calls and text_content:
                 clean_content = text_content.strip()
@@ -395,21 +540,13 @@ Project type: {context.get('project_type', 'Unknown')}
             
             self.messages.append(msg_dict)
 
-            # Check if the model wants to call a function
             if tool_calls:
+                from change_tracker import change_log
+                change_log.begin_transaction()
+                
                 # Execute all tool calls
                 for tc in tool_calls:
-                    # Create a mock object to match litellm's expected interface inside our execute logic
-                    class MockFunction:
-                        def __init__(self, name, arguments):
-                            self.name = name
-                            self.arguments = arguments
-                    class MockToolCall:
-                        def __init__(self, id, function):
-                            self.id = id
-                            self.function = function
-                            
-                    mock_tc = MockToolCall(tc["id"], MockFunction(tc["function"]["name"], tc["function"]["arguments"]))
+                    mock_tc = _ToolCall(tc["id"], _ToolFunction(tc["function"]["name"], tc["function"]["arguments"]))
                     
                     result = self._execute_tool_call(mock_tc)
                     
@@ -420,9 +557,17 @@ Project type: {context.get('project_type', 'Unknown')}
                         "name": tc["function"]["name"],
                         "content": result
                     })
+                
+                change_log.commit_transaction()
                 # Loop continues, sending the tool results back to the model
                 console.print("") # Empty line for padding
             else:
                 # No tool calls, just normal text response
                 console.print("") # padding
                 break
+        else:
+            # Loop exhausted without a final text response
+            console.print(
+                f"[bold yellow]⚠ Agent reached the {MAX_TOOL_ITERATIONS}-step limit "
+                f"without a final response. The task may be incomplete.[/bold yellow]"
+            )
