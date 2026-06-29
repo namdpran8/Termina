@@ -1,4 +1,6 @@
 import os
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ["HF_HUB_DISABLE_WARNINGS"] = "1"
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -44,7 +46,8 @@ import threading
 
 @app.command()
 def chat(session_id: str = None, initial_prompt: str = typer.Option(None, "-p", "--prompt",
-         help="Run a single prompt non-interactively and exit.")):
+         help="Run a single prompt non-interactively and exit."),
+         new: bool = typer.Option(False, "--new", help="Start a new session instead of resuming directory session.")):
     """
     Start an interactive chat session with Termina.
     """
@@ -98,10 +101,20 @@ def chat(session_id: str = None, initial_prompt: str = typer.Option(None, "-p", 
             + "[/dim]"
         )
 
+    if not session_id and not new:
+        from session import get_session_for_directory
+        mapped_session = get_session_for_directory(cwd)
+        if mapped_session:
+            import rich.prompt
+            if rich.prompt.Confirm.ask(f"\n[yellow]Found previous session for this directory. Resume?[/yellow]", default=True):
+                session_id = mapped_session
+
     if session_id:
+        from session import load_session
         messages = load_session(session_id)
         if messages:
             agent.messages = messages
+            agent.session_id = session_id
             console.print(f"[bold green]Successfully resumed session '{session_id}'[/bold green]")
         else:
             console.print(f"[bold red]Error: Session '{session_id}' not found.[/bold red]")
@@ -132,6 +145,11 @@ def chat(session_id: str = None, initial_prompt: str = typer.Option(None, "-p", 
                 break
                 
             if not user_input.strip():
+                continue
+            # Intercept CLI commands typed inside chat
+            if user_input.startswith("termina "):
+                import subprocess
+                subprocess.run(user_input, shell=True)
                 continue
                 
             # Intercept slash commands
@@ -293,13 +311,18 @@ def chat(session_id: str = None, initial_prompt: str = typer.Option(None, "-p", 
                 
             agent.chat(user_input)
             
+            # Save session immediately after every turn so progress isn't lost on crash
+            from session import save_session
+            agent.session_id = save_session(agent.messages, agent.session_id)
+            
         except KeyboardInterrupt:
             continue
         except EOFError:
             break
             
     # Save session on exit
-    sid = save_session(agent.messages)
+    from session import save_session
+    sid = save_session(agent.messages, agent.session_id)
     if sid:
         console.print(f"[dim]Session saved: {sid}[/dim]")
 

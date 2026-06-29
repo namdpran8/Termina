@@ -275,13 +275,13 @@ class Agent:
         from config import get_default_model, get_api_key
         self._provider, self._model = get_default_model()
         self._api_key = get_api_key(self._provider)
+        self.session_id = None
             
         system_prompt = f"""You are Termina, a powerful AI coding assistant that runs in the user's terminal.
 
 ## CONVERSATION RULES
-- For greetings, questions, explanations, and general discussion: respond naturally in conversation. Do NOT use tools for these.
-- Only use tools when the user explicitly asks you to read/write files, run commands, search code, or perform actions on their system.
-- When explaining code, use markdown formatting.
+- If the user asks you to write code or create a file, ALWAYS use the `write_file` or `edit_file` tools. Do NOT dump large blocks of code in the chat.
+- For greetings, questions, explanations, and general discussion: respond naturally in conversation.
 - If a request is ambiguous, ASK the user to clarify before taking action.
 
 ## SAFETY
@@ -415,6 +415,20 @@ Project type: {context.get('project_type', 'Unknown')}
                 "api_base": api_base,
                 "api_key":  api_key or "custom",
             }
+            
+        elif p == "groq":
+            return {
+                **base_kwargs,
+                "model":    f"groq/{model}",
+                "api_key":  api_key,
+            }
+            
+        elif p == "openrouter":
+            return {
+                **base_kwargs,
+                "model":    f"openrouter/{model}",
+                "api_key":  api_key,
+            }
 
         else:
             # openai, anthropic, gemini — litellm handles natively
@@ -429,13 +443,19 @@ Project type: {context.get('project_type', 'Unknown')}
         Main chat loop for a single turn. It handles tool calls recursively until the model gives a final text response.
         """
         # Lazy import litellm — do NOT move this to module level
+        import litellm
+        litellm.suppress_debug_info = True
         from litellm import completion
         
         self.messages.append({"role": "user", "content": user_input})
         
         provider = self._provider
         model    = self._model
-        api_key  = self._api_key
+        
+        # Always fetch latest api key in case user ran 'termina config set-key' mid-session
+        from config import get_api_key
+        api_key = get_api_key(provider)
+        self._api_key = api_key
         
         from cost_tracker import tracker
         tracker.set_model(model)

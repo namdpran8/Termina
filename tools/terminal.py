@@ -24,7 +24,8 @@ def run_command(command: str) -> str:
             capture_output=True,
             text=True,
             check=False, # Do not raise exception on non-zero exit code
-            timeout=120
+            timeout=120,
+            stdin=subprocess.DEVNULL # Prevent interactive commands from hanging silently
         )
         
         output = ""

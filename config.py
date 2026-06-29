@@ -13,7 +13,9 @@ DEFAULT_CONFIG = {
         "nvidia": "",
         "openai": "",
         "anthropic": "",
-        "gemini": ""
+        "gemini": "",
+        "groq": "",
+        "openrouter": ""
     },
     # New local providers block
     "local_providers": {
@@ -35,10 +37,10 @@ DEFAULT_CONFIG = {
 # Model presets for quick reference — shown by `termina config list-models`
 MODEL_PRESETS = {
     "nvidia": [
-        ("meta/llama-3.1-70b-instruct",      "Default — fast general use (free tier)"),
-        ("nvidia/nemotron-3-nano-9b",          "Nemotron Nano — fastest, lowest cost"),
-        ("nvidia/nemotron-3-super-120b-a12b",  "Nemotron Super — best tool-calling, agents"),
-        ("nvidia/nemotron-ultra-253b-v1",      "Nemotron Ultra — max reasoning"),
+        ("meta/llama-3.1-70b-instruct",        "Default — fast general use"),
+        ("meta/llama-3.1-8b-instruct",         "Fastest, lowest cost"),
+        ("nvidia/llama-3.1-nemotron-70b-instruct", "Excellent instruction following and tool usage"),
+        ("nvidia/nemotron-4-340b-instruct",    "Nemotron 4 340B — massive reasoning model"),
     ],
     "openai": [
         ("gpt-4o",       "Best balance of speed and quality"),
@@ -51,6 +53,17 @@ MODEL_PRESETS = {
     "gemini": [
         ("gemini-2.0-flash",   "Fast and capable"),
         ("gemini-2.5-pro",     "Best reasoning"),
+    ],
+    "groq": [
+        ("llama-3.1-70b-versatile", "Blazing fast Llama 3.1 70B"),
+        ("llama-3.1-8b-instant",    "Instant responses"),
+        ("mixtral-8x7b-32768",      "Mixtral MoE"),
+    ],
+    "openrouter": [
+        ("google/gemini-2.0-flash:free",      "100% Free Gemini 2.0"),
+        ("meta-llama/llama-3-8b-instruct:free", "100% Free Llama 3"),
+        ("qwen/qwen-2.5-coder-32b-instruct:free", "100% Free Qwen Coder"),
+        ("nvidia/nemotron-3-ultra-550b-a55b:free", "100% Free Nemotron Ultra"),
     ],
     "ollama": [
         ("llama3.2:8b",        "Good tool-calling support"),

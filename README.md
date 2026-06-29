@@ -49,6 +49,15 @@ termina config set-model openai gpt-4o
 ```
 *(Tip: Run `termina config list-models` to see all available presets including Nvidia Nemotron models!)*
 
+### 100% Free Cloud Providers
+If you don't want to pay for API keys, Termina natively supports the best free AI platforms:
+- **Groq** (Blazing fast, free Llama 3 models): Get a free key at [console.groq.com](https://console.groq.com), then run:
+  `termina config set-key groq YOUR_KEY`
+  `termina config set-model groq llama-3.1-70b-versatile`
+- **OpenRouter** (Hosts completely free models like Gemini 2.0 Flash): Get a key at [openrouter.ai](https://openrouter.ai), then run:
+  `termina config set-key openrouter YOUR_KEY`
+  `termina config set-model openrouter google/gemini-2.0-flash:free`
+
 ### Local Providers
 If you use **Ollama** or **LM Studio**, Termina will auto-detect them on startup. To switch to a local model, simply run:
 ```bash
